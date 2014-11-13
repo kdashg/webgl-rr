@@ -1,0 +1,87 @@
+<html>
+  <head>
+    <meta charset='UTF-8'>
+  </head>
+  <body>
+    <script>
+window.WEBGLRR_DISABLE_ATTACH = null;
+    </script>
+    <script src='webgl-rr.js'></script>
+
+Recording: <input id='fileInput' type='file' accept='.json'
+                  onchange='FileInputChanged(this.files[0])'/>
+<br/>
+Status: <span id='status'>-</span>
+
+<hr/>
+<div id='sandbox'></div>
+<hr/>
+<button onclick='Reset()'>Reset</button>
+<button onclick='NextCall()'>Next Call</button>
+<button onclick='NextFrame()'>Next Frame</button>
+<div id='calls'></div>
+
+    <script>
+
+function FileInputChanged(file) {
+    var status = document.getElementById('status');
+    status.textContent = 'Reading...';
+
+    var reader = new FileReader();
+    reader.onload = function() {
+        LoadRecording(this.result);
+    };
+    reader.onerror = function(e) {
+        status.textContent = 'Error: ' + e;
+    };
+    reader.readAsText(file);
+}
+
+function RemoveChildren(elem) {
+    while (elem.firstChild) {
+        elem.removeChild(elem.firstChild);
+    }
+}
+
+var replayBase = null;
+var curReplay = null;
+
+function LoadRecording(jsonText) {
+    var status = document.getElementById('status');
+    status.textContent = 'Loading...';
+
+    replayBase = WebGLRR.LoadReplay(jsonText);
+    status.textContent = 'Loaded ' + replayBase.FrameCount() + ' frame(s).';
+
+    Reset();
+}
+
+function Reset() {
+    var sandbox = document.getElementById('sandbox');
+    RemoveChildren(sandbox);
+
+    curReplay = replayBase.NewReplay();
+
+    curReplay.Canvases().forEach(function(c) {
+        var remapId = c.remapId;
+
+        var div = document.createElement('div');
+        div.textContent = remapId.toString() + ':';
+        sandbox.appendChild(div);
+
+        c.style.border = '1px solid black';
+        sandbox.appendChild(c);
+    });
+}
+
+function NextCall() {
+    curReplay.NextCall();
+}
+
+function NextFrame() {
+    curReplay.NextFrame();
+}
+
+    </script>
+  </body>
+</html>

@@ -1,0 +1,112 @@
+<html>
+  <head>
+    <meta charset='UTF-8'>
+  </head>
+  <body>
+    <canvas id='c' width='500' height='500'></canvas>
+    <script id='shader-vs' type='x-shader/x-vertex'>
+
+attribute vec3 aPosition;
+
+void main(void) {
+  gl_PointSize = 50.0;
+  gl_Position = vec4(aPosition, 1.0);
+}
+
+    </script>
+    <script id='shader-fs' type='x-shader/x-fragment'>
+
+precision mediump float;
+
+uniform vec4 uColor;
+
+void main(void) {
+  gl_FragColor = uColor;
+}
+
+    </script>
+    <script src='../webgl-rr.js'></script>
+    <script>
+
+var gl;
+
+function getShader(gl, id) {
+  var shaderScript = document.getElementById(id);
+  if (!shaderScript)
+    throw new Error('Missing glsl element.');
+
+  var shader;
+  if (shaderScript.type == 'x-shader/x-fragment') {
+    shader = gl.createShader(gl.FRAGMENT_SHADER);
+  } else if (shaderScript.type == 'x-shader/x-vertex') {
+    shader = gl.createShader(gl.VERTEX_SHADER);
+  } else {
+    throw new Error('Bad shader MIME type.');
+  }
+
+  var str = shaderScript.textContent;
+  gl.shaderSource(shader, str);
+  gl.compileShader(shader);
+
+  return shader;
+}
+
+var shaderProgram;
+function initShaders() {
+  var vertShader = getShader(gl, 'shader-vs');
+  var fragShader = getShader(gl, 'shader-fs');
+
+  shaderProgram = gl.createProgram();
+  gl.attachShader(shaderProgram, vertShader);
+  gl.attachShader(shaderProgram, fragShader);
+  gl.linkProgram(shaderProgram);
+
+  if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+    var str = 'Shader program linking failed:\n';
+    str += 'Vert shader log:\n' + gl.getShaderInfoLog(vertShader) + '\n\n';
+    str += 'Frag shader log:\n' + gl.getShaderInfoLog(fragShader);
+    alert(str);
+  }
+
+  shaderProgram.aPosition = gl.getAttribLocation(shaderProgram, 'aPosition');
+  shaderProgram.uColor = gl.getUniformLocation(shaderProgram, 'uColor');
+}
+
+function drawScene() {
+  gl.clearColor(0.0, 0.3, 0.0, 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  var data = new Float32Array([0, 0, 0, 1]);
+  var a = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, a);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+
+  gl.enable(gl.DEPTH_TEST);
+
+  gl.useProgram(shaderProgram);
+  gl.disableVertexAttribArray(shaderProgram.aPosition);
+
+  drawPoint(shaderProgram.aPosition, [-0.1, -0.1, -0.1],
+            shaderProgram.uColor, [1.0, 0.0, 0.0, 1.0]);
+
+  drawPoint(shaderProgram.aPosition, [0.1, 0.1, 0.1],
+            shaderProgram.uColor, [0.0, 1.0, 0.0, 1.0]);
+
+  drawPoint(shaderProgram.aPosition, [0.0, 0.0, 0.0],
+            shaderProgram.uColor, [0.0, 0.0, 1.0, 1.0]);
+}
+
+function drawPoint(aPos, pos, uColor, color) {
+  gl.vertexAttrib3fv(aPos, pos);
+  gl.uniform4fv(uColor, color);
+  gl.drawArrays(gl.POINTS, 0, 1);
+}
+
+var c = document.getElementById('c');
+gl = c.getContext('webgl');
+initShaders();
+drawScene();
+
+    </script>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+<html>
+<head>
+  <meta charset='utf-8'>
+  <script src='embed.js'></script>
+</head>
+<body>
+  <canvas id='canvas'></canvas>
+  <script>
+var canvas = document.getElementById('canvas');
+var gl = canvas.getContext('experimental-webgl');
+var buffer = gl.createBuffer();
+gl.bindBuffer(gl.webgl.ARRAY_BUFFER, buffer);
+gl.bufferData(gl.webgl.ARRAY_BUFFER, 8, gl.webgl.STATIC_DRAW);
+gl.isBuffer(buffer);
+  </script>
+</body>
+</html>
