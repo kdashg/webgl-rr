@@ -3,7 +3,7 @@
 window.WebGLRR = (function(){
     var TAG_NAMESPACE = 'webglrr';
     var DISABLE_ATTACH_VAR = 'WEBGLRR_DISABLE_ATTACH';
-    var DEFAULT_FRAMES_TO_RECORD = 60;
+    var DEFAULT_FRAMES_TO_RECORD = 3;
     var LOG_RECORDED_CALLS = false;
     var LOG_REPLAYED_CALLS = false;
 
@@ -157,6 +157,18 @@ window.WebGLRR = (function(){
         WebGLTexture,
         WebGLUniformLocation,
     ];
+
+    if (window.WebGL2RenderingContext) {
+        kWebGLObjectCtors = kWebGLObjectCtors.concat([
+            WebGL2RenderingContext,
+            WebGLSampler,
+            WebGLSync,
+            WebGLTransformFeedback,
+            WebGLQuery,
+            WebGLVertexArrayObject,
+        ]);
+    }
+
 
     var kMediaElemCtors = [
         HTMLCanvasElement,
@@ -449,31 +461,48 @@ window.WebGLRR = (function(){
     function TypedArrayToJSON(obj) {
         var ctorName = obj.constructor.name;
 
-        var buffer;
+        var byteArr;
         if (ctorName == 'ArrayBuffer') {
-            buffer = obj;
+            byteArr = new Uint8Array(obj);
         } else {
-            buffer = obj.buffer;
+            byteArr = new Uint8Array(obj.buffer, obj.byteOffset, obj.byteLength);
         }
 
-        var byteArr = new Uint8Array(buffer);
-        var arr = Array.slice(byteArr);
+        var dataStr = '';
+        byteArr.forEach(function(x) {
+            var hex = x.toString(16);
+            if (hex.length != 2) {
+                hex = '0' + hex;
+            }
+            dataStr += hex;
+        });
 
         return {
             __as: ctorName,
-            arr: arr,
+            data: dataStr,
         };
     }
 
     function TypedArrayFromJSON(json) {
         var ctorName = json.__as;
-        var byteArr = new Uint8Array(json.arr);
+        var dataStr = json.data;
+
+        ASSERT(dataStr.length % 2 == 0);
+        var byteCount = dataStr.length / 2;
+        //console.log('byteCount: ' + byteCount);
+
+        var byteArr = new Uint8Array(byteCount);
+        for (var i = 0; i < byteCount; i++) {
+            var cur = dataStr[2*i] + dataStr[2*i+1];
+            byteArr[i] = parseInt(cur, 16);
+        }
 
         var obj = byteArr.buffer;
         if (ctorName != 'ArrayBuffer') {
             var ctor = window[ctorName];
             obj = new ctor(obj);
         }
+        //console.log('done');
 
         return obj;
     }
@@ -487,6 +516,15 @@ window.WebGLRR = (function(){
     var mediaSnapshots;// = {};
 
     var nextRemapId;// = 0;
+
+    function CGLState_Global() {
+        this.unpackRowLength = 0;
+        this.unpackSkipRows = 0;
+        this.unpackSkipPixels = 0;
+        this.unpackAlignment = 4;
+        this.unpackImageHeight = 0;
+        this.unpackSkipImages = 0;
+    }
 
     function Record(framesToRecord=Infinity) {
         framesStillToRecord = framesToRecord;
@@ -528,8 +566,17 @@ window.WebGLRR = (function(){
         if (kWebGLObjectCtors.indexOf(ctor) != -1)
             return TagForRemap(anyVal);
 
-        if (kTypedArrayCtors.indexOf(ctor) != -1)
-            return anyVal.slice();
+        if (kTypedArrayCtors.indexOf(ctor) != -1) {
+            var byteLen = anyVal.byteLength;
+            var miByteLen = byteLen / (1024*1024);
+            if (miByteLen >= 10.0) {
+                miByteLen |= 0;
+                console.log('(' + curFuncName + ') slicing a ' + ctor.name + '(' + miByteLen + 'MiB)');
+                dumpCurCall = true;
+            }
+            var ret = anyVal.slice();
+            return ret;
+        }
 
         if (kMediaElemCtors.indexOf(ctor) != -1) {
             var ret = TagForRemap(anyVal);
@@ -538,6 +585,14 @@ window.WebGLRR = (function(){
             mediaSnapshots[ret.id] = media;
 
             return ret;
+        }
+
+        if (ctor === WebGLActiveInfo) {
+            return {
+                size: anyVal.size,
+                type: anyVal.type,
+                name: anyVal.name,
+            };
         }
 
         if (ctor === Object) {
@@ -551,6 +606,134 @@ window.WebGLRR = (function(){
         throw new Error('Unhandled Object type: ' + ctor.name);
     }
 
+    var curFuncName = '';
+    var dumpCurCall = false;
+
+    var GL_UNSIGNED_SHORT_4_4_4_4 = 0x8033;
+    var GL_UNSIGNED_SHORT_5_5_5_1 = 0x8034;
+    var GL_UNSIGNED_SHORT_5_6_5 = 0x8363;
+    var GL_UNSIGNED_INT_10F_11F_11F_REV = 0x8C3B;
+    var GL_UNSIGNED_INT_2_10_10_10_REV = 0x8368;
+    var GL_UNSIGNED_INT_24_8 = 0x84FA;
+    var GL_UNSIGNED_INT_5_9_9_9_REV = 0x8C3E;
+    var GL_FLOAT_32_UNSIGNED_INT_24_8_REV = 0x8DAD;
+    var GL_BYTE = 0x1400;
+    var GL_UNSIGNED_BYTE = 0x1401;
+    var GL_SHORT = 0x1402;
+    var GL_UNSIGNED_SHORT = 0x1403;
+    var GL_HALF_FLOAT = 0x140B;
+    var GL_HALF_FLOAT_OES = 0x8D61;
+    var GL_INT = 0x1403;
+    var GL_UNSIGNED_INT = 0x140B;
+    var GL_FLOAT = 0x8D61;
+
+    var GL_RG = 0x8227;
+    var GL_RG_INTEGER = 0x8228;
+    var GL_LUMINANCE_ALPHA = 0x190A;
+    var GL_RGB = 0x1907;
+    var GL_RGB_INTEGER = 0x8D98;
+    var GL_RGBA = 0x1908;
+    var GL_RGBA_INTEGER = 0x8D99;
+
+    function BytesPerPixel(format, type) {
+        var bytesPerChannel;
+        switch (type) {
+        case GL_UNSIGNED_SHORT_4_4_4_4:
+        case GL_UNSIGNED_SHORT_5_5_5_1:
+        case GL_UNSIGNED_SHORT_5_6_5:
+            return 2;
+
+        case GL_UNSIGNED_INT_10F_11F_11F_REV:
+        case GL_UNSIGNED_INT_2_10_10_10_REV:
+        case GL_UNSIGNED_INT_24_8:
+        case GL_UNSIGNED_INT_5_9_9_9_REV:
+            return 4;
+
+        case GL_FLOAT_32_UNSIGNED_INT_24_8_REV:
+            return 8;
+
+        // Alright, that's all the fixed-size unpackTypes.
+
+        case GL_BYTE:
+        case GL_UNSIGNED_BYTE:
+            bytesPerChannel = 1;
+            break;
+
+        case GL_SHORT:
+        case GL_UNSIGNED_SHORT:
+        case GL_HALF_FLOAT:
+        case GL_HALF_FLOAT_OES:
+            bytesPerChannel = 2;
+            break;
+
+        case GL_INT:
+        case GL_UNSIGNED_INT:
+        case GL_FLOAT:
+            bytesPerChannel = 4;
+            break;
+
+        default:
+            throw new Error('Unrecognized type: 0x' + type.toString(16));
+        }
+
+        var channels;
+        switch (format) {
+        case GL_RG:
+        case GL_RG_INTEGER:
+        case GL_LUMINANCE_ALPHA:
+            channels = 2;
+            break;
+
+        case GL_RGB:
+        case GL_RGB_INTEGER:
+            channels = 3;
+            break;
+
+        case GL_RGBA:
+        case GL_RGBA_INTEGER:
+            channels = 4;
+            break;
+
+        default:
+            channels = 1;
+            break;
+        }
+
+        return bytesPerChannel * channels;
+    }
+
+    function BytesNeeded(state, width, height, depth, format, type) {
+        var bpp = BytesPerPixel(format, type);
+
+        var rowLength = width; // in 'groups' (pixels)
+        if (state.unpackRowLength) {
+            rowLength = state.unpackRowLength;
+        }
+
+        var imageHeight = height;
+        if (state.unpackImageHeight) {
+            imageHeight = state.unpackImageHeight;
+        }
+
+        var rowStride = bpp * rowLength;
+        while (rowStride % state.unpackAlignment != 0) {
+            rowStride += 1;
+        }
+
+        var imageStride = rowStride * imageHeight;
+
+        var offset = bpp * state.unpackSkipPixels;
+        offset += rowStride * state.unpackSkipRows;
+        offset += imageStride * state.unpackSkipImages;
+
+        var end = offset;
+        end += imageStride * depth;
+        end += rowStride * height;
+        end += bpp * width;
+
+        return end;
+    }
+
     function RecordCall(thisObj, funcName, args, ret) {
         if (!framesStillToRecord)
             return;
@@ -558,10 +741,39 @@ window.WebGLRR = (function(){
         if (funcName == 'getContext' && args[0] == '2d')
             return;
 
+        curFuncName = funcName;
+
         var thisRemapId = TagForRemap(thisObj);
         //console.log(thisRemapId.toString() + '.' + funcName);
 
         var argArray = Array.prototype.slice.call(args); // Otherwise is of type Arguments.
+
+        ////////////
+
+        if (funcName == 'texSubImage3D' && argArray.length == 11) {
+            var width = argArray[5];
+            var height = argArray[6];
+            var depth = argArray[7];
+            var format = argArray[8];
+            var type = argArray[9];
+            var pixels = argArray[10];
+
+            var state = GetTag(thisObj, 'state');
+            //console.log(JSON.stringify(state));
+
+            var bytesNeeded = BytesNeeded(state, width, height, depth, format, type);
+            //console.log('bytesNeeded: ' + bytesNeeded);
+
+            var bytesPerElem = 1;
+            if (!(pixels instanceof ArrayBuffer))
+                bytesPerElem = pixels.BYTES_PER_ELEMENT;
+
+            var elemsNeeded = Math.ceil(bytesNeeded / bytesPerElem);
+            argArray[10] = pixels.subarray(0, elemsNeeded);
+        }
+
+        ////////////
+
         var pickledArgs = Pickle(argArray);
 
         var pickledRet = Pickle(ret);
@@ -569,9 +781,12 @@ window.WebGLRR = (function(){
         var call = new CCall(thisRemapId, funcName, pickledArgs, pickledRet);
         curFrameArr.push(call);
 
-        if (LOG_RECORDED_CALLS) {
+        if (LOG_RECORDED_CALLS || dumpCurCall) {
+            dumpCurCall = false;
             console.log(call.toString());
         }
+
+        ////////////
 
         if (!isWaitingForFrameEnd) {
             isWaitingForFrameEnd = true;
@@ -592,6 +807,38 @@ window.WebGLRR = (function(){
                 }
             });
         }
+
+        ////////////
+
+        if (funcName == 'getContext' && ret) {
+            if (!HasTag(ret, 'state')) {
+                SetTag(ret, 'state', new CGLState_Global());
+            }
+        }
+
+        if (funcName == 'pixelStorei') {
+            var state = GetTag(thisObj, 'state');
+            switch (args[0]) {
+            case 0x0CF2: // UNPACK_ROW_LENGTH
+                state.unpackRowLength = args[1];
+                break;
+            case 0x0CF3: // UNPACK_SKIP_ROWS
+                state.unpackSkipRows = args[1];
+                break;
+            case 0x0CF4: // UNPACK_SKIP_PIXELS
+                state.unpackSkipPixels = args[1];
+                break;
+            case 0x0CF5: // UNPACK_ALIGNMENT
+                state.unpackAlignment = args[1];
+                break;
+            case 0x806E: // UNPACK_IMAGE_HEIGHT
+                state.unpackImageHeight = args[1];
+                break;
+            case 0x806D: // UNPACK_SKIP_IMAGES
+                state.unpackSkipImages = args[1];
+                break;
+            }
+        }
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -601,6 +848,9 @@ window.WebGLRR = (function(){
         if (old === undefined)
             throw new Error(primClass + ' has no member ' + funcName);
 
+        if ('isPatch' in old)
+            return;
+
         var patch = function() {
             var args = arguments; // Magic indentifier!
             var ret = old.apply(this, args);
@@ -609,6 +859,8 @@ window.WebGLRR = (function(){
 
             return ret;
         };
+
+        patch.isPatch = null;
         primClass.prototype[funcName] = patch;
     }
 
@@ -941,6 +1193,7 @@ window.WebGLRR = (function(){
             }
 
             var obj = GetRemapped(call.objId);
+            var funcName = call.funcName;
             var args = RemapArg(call.args);
 
             if (call.funcName == 'getContext') {
@@ -950,9 +1203,12 @@ window.WebGLRR = (function(){
                 args[1].preserveDrawingBuffer = true;
             }
 
-            var funcName = call.funcName;
+            ////////
+
             var func = obj[funcName];
             var ret = func.apply(obj, args);
+
+            ////////
 
             if (funcName.startsWith('create') ||
                 funcName == 'getExtension' ||
