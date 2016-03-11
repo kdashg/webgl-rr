@@ -19,6 +19,7 @@ Status: <span id='status'>-</span>
 <button onclick='Reset()'>Reset</button>
 <button onclick='NextCall()'>Next Call</button>
 <button onclick='NextFrame()'>Next Frame</button>
+<button onclick='RepeatFrame()'>Repeat Frame</button>
 <div id='calls'></div>
 
     <script>
@@ -27,8 +28,15 @@ function FileInputChanged(file) {
     var status = document.getElementById('status');
     status.textContent = 'Reading...';
 
+    var start = performance.now();
+
     var reader = new FileReader();
     reader.onload = function() {
+        var diffMS = performance.now() - start;
+        diffMS |= 0;
+        var chars = this.result.length;
+        console.log('Read ' + chars + ' chars in ' + diffMS + 'ms.');
+
         LoadRecording(this.result);
     };
     reader.onerror = function(e) {
@@ -79,6 +87,16 @@ function NextCall() {
 }
 
 function NextFrame() {
+    curReplay.NextFrame();
+}
+
+function RepeatFrame() {
+    var frameId = curReplay.FrameId();
+    if (frameId) {
+        frameId -= 1;
+    }
+
+    curReplay.SetPos(frameId, 0);
     curReplay.NextFrame();
 }
 

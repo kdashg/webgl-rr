@@ -1070,7 +1070,13 @@ window.WebGLRR = (function(){
 
     function CReplayBase(jsonText) {
         //console.log(jsonText);
+        var start = performance.now();
+
         var recording = Deserialize(jsonText);
+
+        var diffMS = performance.now() - start;
+        diffMS |= 0;
+        console.log('Loaded ' + recording.frames.length + ' frame(s) in ' + diffMS + 'ms.');
 
         var baseObjects = {};
 
@@ -1129,19 +1135,29 @@ window.WebGLRR = (function(){
 
         function GetRemapped(remapId) {
             var obj = activeObjects[remapId.id];
-            ASSERT(obj !== undefined, 'Undefined active object: ' + remapId);
+            ASSERT(obj !== undefined);//, 'Undefined active object: ' + remapId);
             return obj;
         }
 
         function NextFrame() {
-            var endFrameId = curFrameId + 1;
+            var startFrameId = curFrameId;
+            var endFrameId = startFrameId + 1;
+            var hasMore = true;
+            var totalCalls = 0;
 
+            var start = performance.now();
             while (curFrameId < endFrameId) {
-                if (!NextCall())
-                    return false;
+                totalCalls += 1;
+                if (!NextCall()) {
+                    hasMore = false;
+                    break;
+                }
             }
+            var diffMS = performance.now() - start;
+            diffMS = ((diffMS * 1000) | 0) / 1000;
+            console.log('Finished frame ' + startFrameId + ' with ' + totalCalls + ' call(s) in ' + diffMS + 'ms.');
 
-            return true;
+            return hasMore;
         }
 
         function NextCall() {
@@ -1162,6 +1178,11 @@ window.WebGLRR = (function(){
             return true;
         }
 
+        function SetPos(frameId, callId) {
+            curFrameId = frameId;
+            curCallId = callId;
+        }
+
         function RemapArg(arg) {
             if (!(arg instanceof Object))
                 return arg;
@@ -1169,14 +1190,8 @@ window.WebGLRR = (function(){
             if (arg instanceof Array)
                 return arg.map(RemapArg);
 
-            if (arg.constructor.name == 'CRemapId')
+            if (arg.constructor === CRemapId)
                 return GetRemapped(arg);
-
-            if (arg.constructor.name == 'CMediaSnapshot') {
-                var i = document.createElement('img');
-                i.src = arg.dataURL;
-                return i;
-            }
 
             return arg;
         }
@@ -1230,6 +1245,9 @@ window.WebGLRR = (function(){
             Canvases: Canvases,
             NextFrame: NextFrame,
             NextCall: NextCall,
+            SetPos: SetPos,
+            FrameId: function() { return curFrameId; },
+            CallId: function() { return curCallId; },
         };
     }
 
