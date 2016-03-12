@@ -15,26 +15,19 @@ window.WebGLRR = (function(){
         throw e;
     }
 
-    function HasTag(obj, tagName) {
-        ASSERT(obj instanceof Object, obj.toString());
-
-        if (!(TAG_NAMESPACE in obj))
-            return false;
-
-        if (!(tagName in obj[TAG_NAMESPACE]))
-            return false;
-
-        return true;
-    }
-
     function GetTag(obj, tagName) {
-        ASSERT(HasTag(obj, tagName));
+        ASSERT(obj instanceof Object);//, obj.toString());
 
-        return obj[TAG_NAMESPACE][tagName];
+        var tags = obj[TAG_NAMESPACE];
+        if (tags === undefined)
+            return undefined;
+
+        var tag = tags[tagName];
+        return tag;
     }
 
     function SetTag(obj, tagName, val) {
-        ASSERT(!HasTag(obj, tagName));
+        ASSERT(GetTag(obj, tagName) === undefined);
 
         if (!(TAG_NAMESPACE in obj))
             obj[TAG_NAMESPACE] = {};
@@ -458,27 +451,59 @@ window.WebGLRR = (function(){
 
     ////////////////////////////////////////////////////////////////////////////
 
+    var hexForByte = [];
+    for (var i = 0; i < 256; i++) {
+        var hex = i.toString(16);
+        if (hex.length != 2) {
+            hex = '0' + hex;
+        }
+        ASSERT(hex.length == 2);
+        hexForByte[i] = hex;
+    }
+
+    function ByteToHex(b) {
+        return hexForByte[b];
+    }
+
     function TypedArrayToJSON(obj) {
-        var ctorName = obj.constructor.name;
+        var ctor = obj.constructor;
 
         var byteArr;
-        if (ctorName == 'ArrayBuffer') {
+        if (ctor === ArrayBuffer) {
             byteArr = new Uint8Array(obj);
         } else {
             byteArr = new Uint8Array(obj.buffer, obj.byteOffset, obj.byteLength);
         }
 
-        var dataStr = '';
-        byteArr.forEach(function(x) {
-            var hex = x.toString(16);
-            if (hex.length != 2) {
-                hex = '0' + hex;
-            }
-            dataStr += hex;
-        });
+        var mib = obj.byteLength / (1024*1024);
+        if (mib >= 3.0) {
+            console.log(mib + 'MiB.');
+        }
+
+        var start = performance.now();
+
+        var byteStrList = Array.map(byteArr, ByteToHex);
+
+        var diffMS = performance.now() - start;
+        diffMS = ((diffMS * 1000) | 0) / 1000;
+
+        if (mib >= 3.0) {
+          console.log('in ' + diffMS + 'ms.');
+        }
+
+        var dataStr = byteStrList.join('');
+        var byteCount = dataStr.length / 2;
+        ASSERT(dataStr.length % 2 == 0);
+
+        diffMS = performance.now() - start;
+        diffMS = ((diffMS * 1000) | 0) / 1000;
+
+        if (mib >= 3.0) {
+          console.log('in ' + diffMS + 'ms.');
+        }
 
         return {
-            __as: ctorName,
+            __as: ctor.name,
             data: dataStr,
         };
     }
@@ -487,9 +512,9 @@ window.WebGLRR = (function(){
         var ctorName = json.__as;
         var dataStr = json.data;
 
-        ASSERT(dataStr.length % 2 == 0);
         var byteCount = dataStr.length / 2;
         //console.log('byteCount: ' + byteCount);
+        ASSERT(dataStr.length % 2 == 0, byteCount);
 
         var byteArr = new Uint8Array(byteCount);
         for (var i = 0; i < byteCount; i++) {
@@ -539,14 +564,18 @@ window.WebGLRR = (function(){
     ////////////////////////////////////////////////////////////////////////////
 
     function TagForRemap(obj) {
-        if (!HasTag(obj, 'remapId')) {
-            var objTypeStr = obj.constructor.name;
-            var remapId = new CRemapId(objTypeStr, nextRemapId);
-            nextRemapId += 1;
+        var tag = GetTag(obj, 'remapId');
+        if (tag !== undefined)
+            return tag;
 
-            SetTag(obj, 'remapId', remapId);
-        }
-        return GetTag(obj, 'remapId');
+        var objTypeStr = obj.constructor.name;
+        var remapId = new CRemapId(objTypeStr, nextRemapId);
+        nextRemapId += 1;
+
+        //console.log('new ' + remapId + ' from ' + curFuncName);
+
+        SetTag(obj, 'remapId', remapId);
+        return remapId;
     }
 
     function Pickle(anyVal) {
@@ -569,10 +598,10 @@ window.WebGLRR = (function(){
         if (kTypedArrayCtors.indexOf(ctor) != -1) {
             var byteLen = anyVal.byteLength;
             var miByteLen = byteLen / (1024*1024);
-            if (miByteLen >= 10.0) {
+            if (miByteLen >= 3.0) {
                 miByteLen |= 0;
-                console.log('(' + curFuncName + ') slicing a ' + ctor.name + '(' + miByteLen + 'MiB)');
-                dumpCurCall = true;
+                //console.log('(' + curFuncName + ') slicing a ' + ctor.name + '(' + miByteLen + 'MiB)');
+                //dumpCurCall = true;
             }
             var ret = anyVal.slice();
             return ret;
@@ -804,6 +833,11 @@ window.WebGLRR = (function(){
 
                 if (!framesStillToRecord) {
                     console.log(recordedFrames.length + ' frame(s) recorded.');
+                    var totalCalls = 0;
+                    recordedFrames.forEach(function(x) {
+                      totalCalls += x.length;
+                    });
+                    console.log('(' + totalCalls + ' calls)');
                 }
             });
         }
@@ -811,7 +845,7 @@ window.WebGLRR = (function(){
         ////////////
 
         if (funcName == 'getContext' && ret) {
-            if (!HasTag(ret, 'state')) {
+            if (GetTag(ret, 'state') === undefined) {
                 SetTag(ret, 'state', new CGLState_Global());
             }
         }
@@ -974,8 +1008,8 @@ window.WebGLRR = (function(){
 
     ////////////////////////////////////////////////////////////////////////////
 
-    function DownloadText(filename, text, mimetype='text/plain') {
-        var blob = new Blob([text], {type: mimetype});
+    function DownloadText(filename, textArr, mimetype='text/plain') {
+        var blob = new Blob(textArr, {type: mimetype});
         var url = URL.createObjectURL(blob);
 
         var link = document.createElement('a');
@@ -997,57 +1031,127 @@ window.WebGLRR = (function(){
         });
     }
 
+    function CTimer() {
+      this.start = performance.now();
+      this.MS = function(digits=0) {
+        var diff = performance.now() - this.start;
+
+        var scale = Math.pow(10, digits);
+        diff = ((diff * scale) | 0 ) / scale;
+        return diff;
+      };
+    }
+
     function Export() {
         var docCanvasCollection = document.getElementsByTagName('canvas');
 
-        var canvasRecords = [];
-        Array.forEach(docCanvasCollection, function(c) {
-            if (!HasTag(c, 'remapId'))
-                return;
+        console.log('Export()');
+        var timer = new CTimer();
 
+        function ToJSON(x) {
+           return kSerializer.Serialize(x, 0);
+        }
+
+        var parts = [];
+        parts.push(
+            '{',
+            '\n  "canvases": ['
+        );
+
+        var canvasRecords = [];
+        Array.forEach(docCanvasCollection, function(c, i) {
             var remapId = GetTag(c, 'remapId');
+            if (remapId === undefined)
+              return;
 
             var data = {
                 remapId: remapId,
                 width: c.width,
                 height: c.height,
             };
-            canvasRecords.push(data);
+            var json = ToJSON(data);
+
+            if (i != 0) {
+                parts.push(',');
+            }
+            parts.push('\n    ', ToJSON(data));
         });
 
-        var snapshotLines = [];
+        console.log('canvases: ' + timer.MS() + 'ms.');
+
+        parts.push(
+            '\n  ],',
+            '\n  "snapshots": ['
+        );
+
+        var snapshotParts = [];
+        var initial = true;
         for (var k in mediaSnapshots) {
+            if (initial) {
+                initial = false;
+            } else {
+                parts.push(',');
+            }
+
             var snapshot = mediaSnapshots[k];
-            var line = '"' + k + '": "' + snapshot.dataURL + '"';
-            snapshotLines.push(line);
+            parts.push('\n    "' + k.toString(), '": "', snapshot.dataURL, '"');
         }
 
-        var recordedFrameJSONList = recordedFrames.map(function(callList) {
-            var jsonCallList = MapToJSON(callList);
-            return '    [\n      ' + jsonCallList.join(',\n      ') + '\n    ]';
+        console.log('snapshots: ' + timer.MS() + 'ms.');
+
+        parts.push(
+            '\n  ],',
+            '\n  "frames": ['
+        );
+
+        recordedFrames.forEach(function(callList, i) {
+            if (i != 0) {
+                parts.push(',');
+            }
+            parts.push('\n    [');
+
+            callList.forEach(function(call, j){
+                if (j != 0) {
+                    parts.push(',');
+                }
+
+                var json = ToJSON(call);
+                parts.push('\n      ', json);
+            });
+
+            parts.push('\n    ]');
         });
 
+        console.log('frames: ' + timer.MS() + 'ms.');
+
+        parts.push(
+            '\n  ],',
+            '\n}'
+        );
+
+        var totalLen = 0;
+        var partsUnderLimit = 0;
+        parts.forEach(function(x, i) {
+          totalLen += x.length;
+          if (totalLen < (1<<28-2))
+            partsUnderLimit = i;
+        });
+        console.log('totalLen: ' + timer.MS() + 'ms.');
+        console.log('totalLen: ' + totalLen);
+        console.log('partsUnderLimit: ' + partsUnderLimit);
+
+        //var foo = 'a'.repeat(totalLen);
+        //console.log('foo: ' + timer.MS() + 'ms.');
+
         // Let's do a tiny bit of formatting so it's neither a block nor a sprawling mess.
-        var json = [
-            '{',
-            '  "canvases": [',
-            '    ' + MapToJSON(canvasRecords).join(',\n    '),
-            '  ],',
-            '  "snapshots": {',
-            '    ' + snapshotLines.join(',\n    '),
-            '  },',
-            '  "frames": [',
-            recordedFrameJSONList.join(',\n    '),
-            '  ]',
-            '}',
-            ''
-        ];
-        return json.join('\n');
+        //var ret = parts.join('');
+        //console.log('total: ' + timer.MS() + 'ms.');
+        return parts.slice(0, partsUnderLimit);
     }
 
     function Download() {
-        var json = Export();
-        DownloadText('recording.json', json, 'text/json');
+        var textArr = Export();
+        DownloadText('recording.json', textArr, 'text/json');
     }
 
     function Dump() {
