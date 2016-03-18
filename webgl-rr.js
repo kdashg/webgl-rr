@@ -3,9 +3,11 @@
 window.WebGLRR = (function(){
     var TAG_NAMESPACE = 'webglrr';
     var DISABLE_ATTACH_VAR = 'WEBGLRR_DISABLE_ATTACH';
-    var DEFAULT_FRAMES_TO_RECORD = 3;
+    var DEFAULT_FRAMES_TO_RECORD = 2;
     var LOG_RECORDED_CALLS = false;
     var LOG_REPLAYED_CALLS = false;
+    var MAX_CHAR_COUNT = (1 << 28) - 1;
+    var REVIVABLE_KEY = '__as';
 
     function ASSERT(cond, text='<assertion failed>') {
         if (cond)
@@ -68,19 +70,31 @@ window.WebGLRR = (function(){
         return res;
     };
 
-    CCall.toJSON = function(obj) {
-        return {
-            __as: 'CCall',
-            objId: obj.objId,
-            funcName: obj.funcName,
-            args: obj.args,
-            ret: obj.ret,
-        };
+    CCall.prototype.toJSON = function() {
+        var remapStr = this.objId.toString();
+        var ret = [remapStr, this.funcName, this.args, this.ret];
+        if (this.ret === undefined) {
+            ret.pop();
+        }
+        return ret;
+    };
+    CCall.fromShorthandJSON = function(json) {
+        var remapStr = json[0];
+        var objId = CRemapId.fromString(remapStr);
+        return new CCall(objId, json[1], json[2], json[3]);
     };
 
-    CCall.fromJSON = function(json) {
-        return new CCall(json.objId, json.funcName, json.args, json.ret);
+    /*
+    CCall.prototype.toJSON = function() {
+        var ret = {};
+        ret[REVIVABLE_KEY] = ['CCall',  this.objId, this.funcName, this.args, this.ret];
+        return ret;
     };
+    CCall.fromJSON = function(json) {
+        var data = json[REVIVABLE_KEY];
+        return new CCall(data[1], data[2], data[3], data[4]);
+    };
+    */
 
     ////////////////////////////////////
 
@@ -93,17 +107,25 @@ window.WebGLRR = (function(){
         return this.objTypeStr + '$' + this.id;
     };
 
-    CRemapId.toJSON = function(obj) {
-        return {
-            __as: 'CRemapId',
-            type: obj.objTypeStr,
-            id: obj.id,
-        };
+    CRemapId.prototype.toJSON = function() {
+        var ret = {};
+        ret[REVIVABLE_KEY] = ['CRemapId', this.objTypeStr, this.id];
+        return ret;
     };
 
     CRemapId.fromJSON = function(json) {
-        return new CRemapId(json.type, json.id);
+        var data = json[REVIVABLE_KEY];
+        return new CRemapId(data[1], data[2]);
     };
+
+    CRemapId.fromString = function(str) {
+        var split = str.split('$');
+        ASSERT(split.length == 2);
+
+        var typeStr = split[0];
+        var id = parseInt(split[1]);
+        return new CRemapId(typeStr, id);
+    }
 
     ////////////////////////////////////////////////////////////////////////////
 
@@ -465,52 +487,59 @@ window.WebGLRR = (function(){
         return hexForByte[b];
     }
 
-    function TypedArrayToJSON(obj) {
-        var ctor = obj.constructor;
+    function ToJSON_TypedArray() {
+        var ctor = this.constructor;
 
         var byteArr;
         if (ctor === ArrayBuffer) {
-            byteArr = new Uint8Array(obj);
+            byteArr = new Uint8Array(this);
         } else {
-            byteArr = new Uint8Array(obj.buffer, obj.byteOffset, obj.byteLength);
+            byteArr = new Uint8Array(this.buffer, this.byteOffset, this.byteLength);
         }
 
-        var mib = obj.byteLength / (1024*1024);
+        var mib = this.byteLength / (1024*1024);
         if (mib >= 3.0) {
             console.log(mib + 'MiB.');
         }
 
-        var start = performance.now();
+        var timer = new CTimer();
 
-        var byteStrList = Array.map(byteArr, ByteToHex);
-
-        var diffMS = performance.now() - start;
-        diffMS = ((diffMS * 1000) | 0) / 1000;
+        //var byteStrList = Array.map(byteArr, ByteToHex); (slower)
+        var byteStrList = Array(byteArr.length);
+        for (var i = 0; i < byteArr.length; i++) {
+            byteStrList[i] = ByteToHex(byteArr[i]);
+        }
 
         if (mib >= 3.0) {
-          console.log('in ' + diffMS + 'ms.');
+            console.log('byteStrList in ' + timer.Split());
         }
 
         var dataStr = byteStrList.join('');
-        var byteCount = dataStr.length / 2;
-        ASSERT(dataStr.length % 2 == 0);
 
-        diffMS = performance.now() - start;
-        diffMS = ((diffMS * 1000) | 0) / 1000;
-
+        /* (faster if you skip the final slice, but slows down later serialization, likely due to string roping)
+        var dataStr = '';
+        for (var i = 0; i < byteArr.length; i++) {
+            dataStr += ByteToHex(byteArr[i]);
+        }
+        dataStr = dataStr.slice();
+        */
         if (mib >= 3.0) {
-          console.log('in ' + diffMS + 'ms.');
+            console.log('dataStr in ' + timer.Split());
+            console.log('total in ' + timer.Total());
         }
 
-        return {
-            __as: ctor.name,
-            data: dataStr,
-        };
+        //var byteCount = dataStr.length / 2;
+        //ASSERT(dataStr.length % 2 == 0);
+
+        var ret = {};
+        ret[REVIVABLE_KEY] = [ctor.name, dataStr];
+        return ret;
     }
 
-    function TypedArrayFromJSON(json) {
-        var ctorName = json.__as;
-        var dataStr = json.data;
+    function FromJSON_TypedArray(json) {
+        var reviveData = json[REVIVABLE_KEY];
+        var ctorName = reviveData[0];
+        var dataStr = reviveData[1];
 
         var byteCount = dataStr.length / 2;
         //console.log('byteCount: ' + byteCount);
@@ -604,6 +633,7 @@ window.WebGLRR = (function(){
                 //dumpCurCall = true;
             }
             var ret = anyVal.slice();
+            ret.toJSON = ToJSON_TypedArray;
             return ret;
         }
 
@@ -935,51 +965,29 @@ window.WebGLRR = (function(){
 
     ////////////////////////////////////////////////////////////////////////////
 
-    function CClassSerializer(toJSON, fromJSON) {
-        this.toJSON = toJSON;
-        this.fromJSON = fromJSON;
-    }
-
-    function CJSONSerializer(serializationMap) {
-        var boxName = '__reviveClass';
-
-        function JSONReplace(k, v) {
-            if (!(v instanceof Object))
-                return v;
-
-            var ctorName = v.constructor.name;
-            var ser = serializationMap[ctorName];
-            if (ser === undefined)
-                return v;
-
-            var json = ser.toJSON(v);
-            return json;
-        }
-
+    function CJSONSerializer(reviveFuncMap) {
         function JSONRevive(k, v) {
             if (!(v instanceof Object))
                 return v;
 
-            var ctorName = v.__as;
-            if (ctorName === undefined)
+            var data = v[REVIVABLE_KEY];
+            if (data === undefined)
                 return v;
 
-            var ser = serializationMap[ctorName];
-            if (ser === undefined) {
-                console.log('ctorName "' + ctorName + '" not found in serializationMap, ignoring.');
-                return v;
-            }
+            var ctorName = data[0];
+            var func = reviveFuncMap[ctorName];
+            if (func === undefined)
+                throw new Error('Non-revivable ctor: ' + ctorName);
 
-            var clone = ser.fromJSON(v);
-            return clone;
+            return func(v);
         }
 
-        function Serialize(root, spaces=2) {
-            return JSON.stringify(root, JSONReplace, spaces);
+        function Serialize(root) {
+            return JSON.stringify(root);
         }
 
-        function Deserialize(str) {
-            return JSON.parse(str, JSONRevive);
+        function Deserialize(textArr) {
+            return ParseJSONFromArr(textArr, JSONRevive);
         }
 
         return {
@@ -990,21 +998,23 @@ window.WebGLRR = (function(){
 
     ////////////////////////////////////////////////////////////////////////////
 
-    var kSerializationMap = {}; // ctorName -> CClassSerializer
+    var kRevivableCtors = [
+        CRemapId,
+        //CCall,
+    ];
 
-    kSerializableCtors.forEach(function(ctor) {
-        ASSERT('toJSON' in ctor);
+    var kReviveFuncMap = {};
+
+    kRevivableCtors.forEach(function(ctor) {
         ASSERT('fromJSON' in ctor);
-        var trans = new CClassSerializer(ctor.toJSON, ctor.fromJSON);
-        kSerializationMap[ctor.name] = trans;
+        kReviveFuncMap[ctor.name] = ctor.fromJSON;
     });
 
     kTypedArrayCtors.forEach(function(ctor) {
-        var trans = new CClassSerializer(TypedArrayToJSON, TypedArrayFromJSON);
-        kSerializationMap[ctor.name] = trans;
+        kReviveFuncMap[ctor.name] = FromJSON_TypedArray;
     });
 
-    var kSerializer = new CJSONSerializer(kSerializationMap);
+    var kSerializer = new CJSONSerializer(kReviveFuncMap);
 
     ////////////////////////////////////////////////////////////////////////////
 
@@ -1025,21 +1035,64 @@ window.WebGLRR = (function(){
 
     // Alright, let's export.
 
-    function MapToJSON(arr) {
-        return arr.map(function(elem) {
-            return kSerializer.Serialize(elem, 0);
-        });
+    function Decimals(val, digits) {
+        var scale = Math.pow(10, digits);
+        val = ((val * scale) | 0 ) / scale;
+        return val;
     }
 
     function CTimer() {
-      this.start = performance.now();
-      this.MS = function(digits=0) {
-        var diff = performance.now() - this.start;
+        this.start = performance.now();
+        this.split = this.start;
 
-        var scale = Math.pow(10, digits);
-        diff = ((diff * scale) | 0 ) / scale;
-        return diff;
-      };
+        this.Total = function() {
+            var diff = performance.now() - this.start;
+            return diff;
+        };
+        this.Split = function() {
+            var now = performance.now();
+            var diff = now - this.split;
+            this.split = now;
+
+            return diff;
+        };
+    }
+
+    function EscapeUnicode(wstr) {
+        var parts = [];
+        var partStart = 0;
+        //Array.forEach(wstr, function(x, i){
+        for (var i = 0; i < wstr.length; i++) {
+            //var charCode = x.charCodeAt(0);
+            var charCode = wstr.charCodeAt(i);
+            if (charCode < 128)
+                continue;
+
+            var newPart = wstr.substring(partStart, i);
+            if (newPart.length) {
+                parts.push(newPart);
+            }
+
+            var charCodeStr = charCode.toString(16);
+            while (charCodeStr.length < 4) {
+                charCodeStr = '0' + charCodeStr;
+            }
+            var uform = '\\u' + charCodeStr;
+
+            parts.push(uform);
+            partStart = i + 1;
+        //});
+        }
+
+        if (!parts.length)
+            return wstr;
+
+        var newPart = wstr.substring(partStart);
+        if (newPart.length) {
+            parts.push(newPart);
+        }
+        var ret = parts.join('');
+        return ret;
     }
 
     function Export() {
@@ -1059,6 +1112,7 @@ window.WebGLRR = (function(){
         );
 
         var canvasRecords = [];
+        var isInitial = true;
         Array.forEach(docCanvasCollection, function(c, i) {
             var remapId = GetTag(c, 'remapId');
             if (remapId === undefined)
@@ -1071,17 +1125,19 @@ window.WebGLRR = (function(){
             };
             var json = ToJSON(data);
 
-            if (i != 0) {
+            if (isInitial) {
+                isInitial = false;
+            } else {
                 parts.push(',');
             }
             parts.push('\n    ', ToJSON(data));
         });
 
-        console.log('canvases: ' + timer.MS() + 'ms.');
+        console.log('canvases: ' + Decimals(timer.Split(), 0) + 'ms.');
 
         parts.push(
             '\n  ],',
-            '\n  "snapshots": ['
+            '\n  "snapshots": {'
         );
 
         var snapshotParts = [];
@@ -1097,10 +1153,10 @@ window.WebGLRR = (function(){
             parts.push('\n    "' + k.toString(), '": "', snapshot.dataURL, '"');
         }
 
-        console.log('snapshots: ' + timer.MS() + 'ms.');
+        console.log('snapshots: ' + Decimals(timer.Split(), 0) + 'ms.');
 
         parts.push(
-            '\n  ],',
+            '\n  },',
             '\n  "frames": ['
         );
 
@@ -1122,31 +1178,31 @@ window.WebGLRR = (function(){
             parts.push('\n    ]');
         });
 
-        console.log('frames: ' + timer.MS() + 'ms.');
+        console.log('frames: ' + Decimals(timer.Split(), 0) + 'ms.');
 
         parts.push(
-            '\n  ],',
+            '\n  ]',
             '\n}'
         );
 
+        parts = parts.map(EscapeUnicode);
+        console.log('escaping unicode: ' + Decimals(timer.Split(), 0) + 'ms.');
+
         var totalLen = 0;
-        var partsUnderLimit = 0;
         parts.forEach(function(x, i) {
-          totalLen += x.length;
-          if (totalLen < (1<<28-2))
-            partsUnderLimit = i;
+            totalLen += x.length;
         });
-        console.log('totalLen: ' + timer.MS() + 'ms.');
-        console.log('totalLen: ' + totalLen);
-        console.log('partsUnderLimit: ' + partsUnderLimit);
 
-        //var foo = 'a'.repeat(totalLen);
-        //console.log('foo: ' + timer.MS() + 'ms.');
+        var totalLenKiB = (totalLen / 1024) | 0;
+        console.log('totalLen: ' + totalLenKiB + 'KiB');
 
-        // Let's do a tiny bit of formatting so it's neither a block nor a sprawling mess.
-        //var ret = parts.join('');
-        //console.log('total: ' + timer.MS() + 'ms.');
-        return parts.slice(0, partsUnderLimit);
+        console.log('total: ' + Decimals(timer.Total(), 0) + 'ms.');
+
+        if (totalLen > MAX_CHAR_COUNT) {
+            console.log('Warning: Length exceeds max char count: ' + totalLen);
+        }
+
+        return parts;
     }
 
     function Download() {
@@ -1155,28 +1211,420 @@ window.WebGLRR = (function(){
     }
 
     function Dump() {
-        var json = Export();
+        var textArr = Export();
+
+        var totalLen = 0;
+        textArr.forEach(function(x, i) {
+            totalLen += x.length;
+        });
+
+        if (totalLen > MAX_CHAR_COUNT)
+            throw new Error('Length exceeds max char count: ' + totalLen);
+
+        var json = textArr.join('');
+
         console.log(json);
     }
 
     ////////////////////////////////////////////////////////////////////////////
 
-    function Deserialize(json) {
-        var root = kSerializer.Deserialize(json);
+    function ParseJSONFromArr(textArr, fnRevive) {
+        if (!fnRevive) {
+            fnRevive = function(k, v) { return v; };
+        }
+
+        ////////////
+
+        function IsIn(ref, arr) {
+            var isNotIn = arr.every(function(x) { return x != ref; });
+            return !isNotIn;
+        }
+
+        function CArrayReader(textArr) {
+            textArr.forEach(function(x,i) {
+                ASSERT(x.length > 0, '[' + i + '].length > 0');
+            });
+
+            var pageId = 0;
+            var pagePos = 0;
+            var lineNum = 1;
+            var linePos = 0;
+
+            var curPage = textArr[0];
+
+            function CPos() {
+                this.pageId = pageId;
+                this.pagePos = pagePos;
+                this.lineNum = lineNum;
+                this.linePos = linePos;
+
+                this.toString = function() {
+                    var val;
+                    if (curPage === undefined) {
+                        val = '<EOF>';
+                    } else {
+                        val = curPage[this.pagePos];
+                    }
+                    return '"' + val + '"@[' + this.lineNum + ', ' + this.linePos + ']';
+                };
+            };
+
+            this.Pos = function() {
+                return new CPos();
+            };
+
+            this.Peek = function() {
+                var curPage = textArr[pageId];
+                if (curPage === undefined)
+                    return '\0';
+
+                var ret = curPage[pagePos];
+                return ret;
+            };
+
+            this.PeekBack = function(n) {
+                var peekPageId = pageId;
+                var peekPagePos = pagePos;
+
+                for (var i = 0; i < n; i++) {
+                    if (!peekPagePos) {
+                        peekPageId -= 1;
+                        peekPagePos = textArr[peekPageId].length - 1;
+                    } else {
+                        peekPagePos -= 1;
+                    }
+                }
+
+                return textArr[peekPageId][peekPagePos];
+            };
+
+            this.Next = function() {
+                if (curPage === undefined)
+                    return '\0';
+
+                var ret = curPage[pagePos];
+                pagePos += 1;
+
+                if (pagePos >= curPage.length) {
+                    console.log('pageId: ' + pageId);
+                    console.log('pagePos: ' + pagePos);
+                    console.log('curPage.length: ' + curPage.length);
+                    pageId += 1;
+                    pagePos = 0;
+                    curPage = textArr[pageId];
+                    console.log('pageId: ' + pageId);
+                    console.log('pagePos: ' + pagePos);
+                    if (curPage !== undefined)
+                        console.log('curPage.length: ' + curPage.length);
+                }
+
+                linePos += 1;
+                if (ret === '\n') {
+                    lineNum += 1;
+                    if (lineNum % 3000 == 0) {
+                        console.log('lineNum', lineNum);
+                    }
+                    linePos = 0;
+                }
+
+                return ret;
+            };
+
+            this.Slice = function(start, end) {
+                //console.log(start, end);
+
+                var slicePages = textArr.slice(start.pageId, end.pageId + 1);
+                //console.log(slicePages);
+                if (!slicePages.length)
+                    return '';
+
+                var lastSlicePage = slicePages.length - 1;
+                //console.log(end.pageId, end.pagePos, lastSlicePage, slicePages[lastSlicePage].length);
+                slicePages[lastSlicePage] = slicePages[lastSlicePage].slice(0, end.pagePos);
+
+                slicePages[0] = slicePages[0].slice(start.pagePos);
+
+                return slicePages.join('');
+            };
+
+            this.Ignore = function(chars) {
+                while (true) {
+                    var cur = this.Peek();
+                    if (cur === '\0')
+                        return cur;
+
+                    if (!IsIn(cur, chars))
+                        return cur;
+
+                    this.Next();
+                }
+            };
+
+            this.Seek = function(chars) {
+                while (true) {
+                    var cur = this.Peek();
+                    if (cur === '\0')
+                        return cur;
+
+                    if (IsIn(cur, chars))
+                        return cur;
+
+                    this.Next();
+                }
+            };
+        }
+
+        ////////////
+
+        var reader = new CArrayReader(textArr);
+
+        ////////////
+
+        var kJSON_WhitespaceList = [0x20, 0x9, 0xd, 0xa].map(function(x){
+            return String.fromCodePoint(x);
+        });
+
+        function ParseError(text) {
+            return new Error('Parse error: ' + text);
+        }
+
+        function SeekNonWhitespace() {
+            return reader.Ignore(kJSON_WhitespaceList);
+        }
+
+        function SeekNonWhitespaceAndExpect(expected) {
+            var peek = SeekNonWhitespace();
+            if (peek == expected)
+                return;
+
+            if (expected == '\0') {
+                expected = '<EOF>';
+            }
+
+            var pos = reader.Pos();
+            throw ParseError('Expected "' + expected + '": ' + pos);
+        }
+
+        ////////////
+
+        function Parse_JSONString() {
+            var startPos = reader.Pos();
+            var start = reader.Next();
+            ASSERT(start == '"');
+
+            var timer = new CTimer();
+            var chars = 0;
+            while (true) {
+                //if ((chars % (100*1000)) == 0)
+                //    console.log('chars', chars);
+
+                var cur = reader.Next();
+                chars += 1;
+
+                if (cur === '\\') {
+                    reader.Next();
+                    chars += 1;
+                    continue;
+                }
+
+                if (cur === '"')
+                    break;
+
+                if (cur === '\0') {
+                    var lineNum = startPos.lineNum;
+                    throw ParseError('Unterminated JSONString starting at line ' + lineNum + ': ' + startPos);
+                }
+            }
+
+            // BTW, cow is '\uD83D\uDC04'.
+            /*
+            while (true) {
+                var cur = reader.Next();
+
+                chars += 1;
+
+                if (cur === '"') {
+                    var peekBack = 1;
+                    while (true) {
+                        var peek = reader.PeekBack(peekBack);
+                        if (peek !== '\\') {
+                            peekBack -= 1;
+                            break;
+                        }
+                        peekBack += 1;
+                    }
+                    if (peekBack % 2 == 0)
+                        break;
+                }
+                if (cur === '\0') {
+                    var lineNum = startPos.lineNum;
+                    throw ParseError('Unterminated JSONString starting at line ' + lineNum + ': ' + startPos);
+                }
+            }
+            */
+
+            var DUMP_THRESHOLD = 1*1024*1024;
+            var shouldDump = (chars >= DUMP_THRESHOLD);
+            if (shouldDump) {
+                var kib = (chars / 1024) | 0;
+                var split = timer.Split();
+                var mibPerSec = (chars / (1024*1024)) / (split / 1000);
+                split = ((split * 10) | 0) / 10;
+                console.log('Parsed ' + kib + 'KiB in ' + split + 'ms.');
+
+                mibPerSec = ((mibPerSec * 10) | 0) / 10;
+                console.log('  ~' + mibPerSec + 'MiB/s.');
+            }
+
+            var endPos = reader.Pos();
+            var jsonStr = reader.Slice(startPos, endPos);
+
+            if (shouldDump) {
+                var split = timer.Split();
+                split = ((split * 10) | 0) / 10;
+                console.log('  split in ' + split + 'ms.');
+            }
+
+            var ret = JSON.parse(jsonStr);
+
+            if (shouldDump) {
+                var split = timer.Split();
+                split = ((split * 10) | 0) / 10;
+                console.log('  reparsed in ' + split + 'ms.');
+            }
+
+            return ret;
+        }
+
+        ////////////
+
+        function Parse_JSON(fnRevive, terminals) {
+            var peek = SeekNonWhitespace();
+            var startPos = reader.Pos();
+
+            if (peek == '"')
+                return Parse_JSONString();
+
+            if (peek == '[') {
+                var ret = [];
+
+                while (true) {
+                    ASSERT(IsIn(reader.Next(), ['[', ',']));
+
+                    var peekNonWhitespace = SeekNonWhitespace();
+                    if (peekNonWhitespace == ']')
+                        break;
+
+                    var val = Parse_JSON(fnRevive, [',', ']']);
+                    if (val !== undefined) {
+                        var key = ret.length;
+
+                        val = fnRevive(key, val);
+                        ret.push(val);
+
+                        var peekTerm = SeekNonWhitespace();
+                        if (peekTerm == ',')
+                            continue;
+
+                        if (peekTerm == ']')
+                            break;
+                    }
+                    var endPos = reader.Pos();
+                    throw ParseError('Unmatched ' + startPos + ': ' + endPos);
+                }
+
+                ASSERT(reader.Next() == ']');
+                return ret;
+            }
+
+            if (peek == '{') {
+                var ret = {};
+
+                while (true) {
+                    ASSERT(IsIn(reader.Next(), ['{', ',']));
+
+                    var peekKeyStart = SeekNonWhitespace();
+                    if (peekKeyStart == '}')
+                        break;
+
+                    if (peekKeyStart != '"')
+                        throw ParseError('Expected """: ' + reader.Pos());
+
+                    var key = Parse_JSONString();
+
+                    SeekNonWhitespaceAndExpect(':');
+                    ASSERT(reader.Next() == ':');
+
+                    var val = Parse_JSON(fnRevive, [',', '}']);
+                    if (val !== undefined) {
+                        val = fnRevive(key, val);
+                        ret[key] = val;
+
+                        var peekTerm = SeekNonWhitespace();
+                        if (peekTerm == ',')
+                            continue;
+
+                        if (peekTerm == '}')
+                            break;
+                    }
+
+                    var endPos = reader.Pos();
+                    throw ParseError('Unmatched ' + startPos + ': ' + endPos);
+                }
+
+                ASSERT(reader.Next() == '}');
+                //console.log(Object.keys(ret));
+                return ret;
+            }
+
+            ////////
+
+            var peekTerm = reader.Seek(terminals);
+            if (!IsIn(peekTerm, terminals))
+                return undefined;
+
+            var endPos = reader.Pos();
+            var primStr = reader.Slice(startPos, endPos);
+            try {
+                var prim = JSON.parse(primStr);
+            } catch (e) {
+                console.log('JSON.parse failed to parse "' + primStr + '" starting at: ' + startPos);
+                throw e;
+            }
+            return prim;
+        }
+
+        ////////////
+
+        var ret = Parse_JSON(fnRevive, ['\0']);
+        SeekNonWhitespaceAndExpect('\0');
+        return ret;
+    }
+
+    function Import(textArr) {
+        ASSERT(textArr instanceof Array);
+        var root = kSerializer.Deserialize(textArr);
+
+        var frames = root.frames;
+        frames.forEach(function(calls) {
+            calls.forEach(function(call, i) {
+                calls[i] = CCall.fromShorthandJSON(call);
+            });
+        });
+
         return root;
     }
 
     ////////////////////////////////////////////////////////////////////////////
 
-    function LoadReplay(jsonText) {
-        return new CReplayBase(jsonText);
+    function LoadReplay(textArr) {
+        return new CReplayBase(textArr);
     }
 
-    function CReplayBase(jsonText) {
-        //console.log(jsonText);
+    function CReplayBase(textArr) {
         var start = performance.now();
 
-        var recording = Deserialize(jsonText);
+        var recording = Import(textArr);
 
         var diffMS = performance.now() - start;
         diffMS |= 0;
