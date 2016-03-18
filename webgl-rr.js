@@ -1236,7 +1236,7 @@ window.WebGLRR = (function(){
         ////////////
 
         function IsIn(ref, arr) {
-            var isNotIn = arr.every(function(x) { return x != ref; });
+            var isNotIn = arr.every(function(x) { return x !== ref; });
             return !isNotIn;
         }
 
@@ -1274,11 +1274,10 @@ window.WebGLRR = (function(){
             };
 
             this.Peek = function() {
-                var curPage = textArr[pageId];
                 if (curPage === undefined)
-                    return '\0';
+                    return 0;
 
-                var ret = curPage[pagePos];
+                var ret = curPage.charCodeAt(pagePos);
                 return ret;
             };
 
@@ -1295,14 +1294,14 @@ window.WebGLRR = (function(){
                     }
                 }
 
-                return textArr[peekPageId][peekPagePos];
+                return textArr[peekPageId].charCodeAt(peekPagePos);
             };
 
             this.Next = function() {
                 if (curPage === undefined)
-                    return '\0';
+                    return 0;
 
-                var ret = curPage[pagePos];
+                var ret = curPage.charCodeAt(pagePos);
                 pagePos += 1;
 
                 if (pagePos >= curPage.length) {
@@ -1319,7 +1318,7 @@ window.WebGLRR = (function(){
                 }
 
                 linePos += 1;
-                if (ret === '\n') {
+                if (ret === 0x0a) { // \n
                     lineNum += 1;
                     if (lineNum % 3000 == 0) {
                         console.log('lineNum', lineNum);
@@ -1350,7 +1349,7 @@ window.WebGLRR = (function(){
             this.Ignore = function(chars) {
                 while (true) {
                     var cur = this.Peek();
-                    if (cur === '\0')
+                    if (cur === 0)
                         return cur;
 
                     if (!IsIn(cur, chars))
@@ -1363,7 +1362,7 @@ window.WebGLRR = (function(){
             this.Seek = function(chars) {
                 while (true) {
                     var cur = this.Peek();
-                    if (cur === '\0')
+                    if (cur === 0)
                         return cur;
 
                     if (IsIn(cur, chars))
@@ -1380,9 +1379,7 @@ window.WebGLRR = (function(){
 
         ////////////
 
-        var kJSON_WhitespaceList = [0x20, 0x9, 0xd, 0xa].map(function(x){
-            return String.fromCodePoint(x);
-        });
+        var kJSON_WhitespaceList = [0x20, 0x9, 0xd, 0xa];
 
         function ParseError(text) {
             return new Error('Parse error: ' + text);
@@ -1394,15 +1391,17 @@ window.WebGLRR = (function(){
 
         function SeekNonWhitespaceAndExpect(expected) {
             var peek = SeekNonWhitespace();
-            if (peek == expected)
+            if (peek === expected)
                 return;
 
-            if (expected == '\0') {
-                expected = '<EOF>';
+            var expectedChar = String.fromCodePoint(expected);
+
+            if (expectedChar === '\0') {
+                expectedChar = '<EOF>';
             }
 
             var pos = reader.Pos();
-            throw ParseError('Expected "' + expected + '": ' + pos);
+            throw ParseError('Expected "' + expectedChar + '": ' + pos);
         }
 
         ////////////
@@ -1410,15 +1409,16 @@ window.WebGLRR = (function(){
         function Parse_JSONString() {
             var startPos = reader.Pos();
             var start = reader.Next();
-            ASSERT(start === '"');
+            ASSERT(start === 0x22); // "
 
             var timer = new CTimer();
             var chars = 0;
+            /*
             while (true) {
                 //if ((chars % (100*1000)) == 0)
                 //    console.log('chars', chars);
 
-                var cur = reader.Next().charCodeAt(0);
+                var cur = reader.Next();
                 chars += 1;
 
                 if (cur === 0x5c) { // '\\'
@@ -1435,19 +1435,19 @@ window.WebGLRR = (function(){
                     throw ParseError('Unterminated JSONString starting at line ' + lineNum + ': ' + startPos);
                 }
             }
-
+            */
             // BTW, cow is '\uD83D\uDC04'.
-            /*
+
             while (true) {
                 var cur = reader.Next();
 
                 chars += 1;
 
-                if (cur === '"') {
+                if (cur === 0x22) { // "
                     var peekBack = 1;
                     while (true) {
                         var peek = reader.PeekBack(peekBack);
-                        if (peek !== '\\') {
+                        if (peek !== 0x5c) { // '\\'
                             peekBack -= 1;
                             break;
                         }
@@ -1456,12 +1456,14 @@ window.WebGLRR = (function(){
                     if (peekBack % 2 == 0)
                         break;
                 }
-                if (cur === '\0') {
+                /*
+                if (cur === 0) {
                     var lineNum = startPos.lineNum;
                     throw ParseError('Unterminated JSONString starting at line ' + lineNum + ': ' + startPos);
                 }
+                */
             }
-            */
+
 
             var DUMP_THRESHOLD = 1*1024*1024;
             var shouldDump = (chars >= DUMP_THRESHOLD);
@@ -1502,20 +1504,20 @@ window.WebGLRR = (function(){
             var peek = SeekNonWhitespace();
             var startPos = reader.Pos();
 
-            if (peek == '"')
+            if (peek === 0x22) // "
                 return Parse_JSONString();
 
-            if (peek == '[') {
+            if (peek === 0x5b) { // [
                 var ret = [];
 
                 while (true) {
-                    ASSERT(IsIn(reader.Next(), ['[', ',']));
+                    ASSERT(IsIn(reader.Next(), [0x5b, 0x2c])); // [ and ,
 
                     var peekNonWhitespace = SeekNonWhitespace();
-                    if (peekNonWhitespace == ']')
+                    if (peekNonWhitespace == 0x5d) // ]
                         break;
 
-                    var val = Parse_JSON(fnRevive, [',', ']']);
+                    var val = Parse_JSON(fnRevive, [0x2c, 0x5d]); // , and ]
                     if (val !== undefined) {
                         var key = ret.length;
 
@@ -1523,48 +1525,48 @@ window.WebGLRR = (function(){
                         ret.push(val);
 
                         var peekTerm = SeekNonWhitespace();
-                        if (peekTerm == ',')
+                        if (peekTerm === 0x2c) // ,
                             continue;
 
-                        if (peekTerm == ']')
+                        if (peekTerm === 0x5d) // ]
                             break;
                     }
                     var endPos = reader.Pos();
                     throw ParseError('Unmatched ' + startPos + ': ' + endPos);
                 }
 
-                ASSERT(reader.Next() == ']');
+                ASSERT(reader.Next() == 0x5d); // ]
                 return ret;
             }
 
-            if (peek == '{') {
+            if (peek == 0x7b) { // {
                 var ret = {};
 
                 while (true) {
-                    ASSERT(IsIn(reader.Next(), ['{', ',']));
+                    ASSERT(IsIn(reader.Next(), [0x7b, 0x2c])); // { and ,
 
                     var peekKeyStart = SeekNonWhitespace();
-                    if (peekKeyStart == '}')
+                    if (peekKeyStart === 0x7d) // }
                         break;
 
-                    if (peekKeyStart != '"')
+                    if (peekKeyStart !== 0x22) // "
                         throw ParseError('Expected """: ' + reader.Pos());
 
                     var key = Parse_JSONString();
 
-                    SeekNonWhitespaceAndExpect(':');
-                    ASSERT(reader.Next() == ':');
+                    SeekNonWhitespaceAndExpect(0x3a); // :
+                    ASSERT(reader.Next() === 0x3a); // :
 
-                    var val = Parse_JSON(fnRevive, [',', '}']);
+                    var val = Parse_JSON(fnRevive, [0x2c, 0x7d]); // , and }
                     if (val !== undefined) {
                         val = fnRevive(key, val);
                         ret[key] = val;
 
                         var peekTerm = SeekNonWhitespace();
-                        if (peekTerm == ',')
+                        if (peekTerm === 0x2c) // ,
                             continue;
 
-                        if (peekTerm == '}')
+                        if (peekTerm === 0x7d) // }
                             break;
                     }
 
@@ -1572,7 +1574,7 @@ window.WebGLRR = (function(){
                     throw ParseError('Unmatched ' + startPos + ': ' + endPos);
                 }
 
-                ASSERT(reader.Next() == '}');
+                ASSERT(reader.Next() === 0x7d); // }
                 //console.log(Object.keys(ret));
                 return ret;
             }
@@ -1596,8 +1598,8 @@ window.WebGLRR = (function(){
 
         ////////////
 
-        var ret = Parse_JSON(fnRevive, ['\0']);
-        SeekNonWhitespaceAndExpect('\0');
+        var ret = Parse_JSON(fnRevive, [0]);
+        SeekNonWhitespaceAndExpect(0);
         return ret;
     }
 
