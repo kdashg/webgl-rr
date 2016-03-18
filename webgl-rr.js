@@ -1410,7 +1410,7 @@ window.WebGLRR = (function(){
         function Parse_JSONString() {
             var startPos = reader.Pos();
             var start = reader.Next();
-            ASSERT(start == '"');
+            ASSERT(start === '"');
 
             var timer = new CTimer();
             var chars = 0;
@@ -1418,19 +1418,19 @@ window.WebGLRR = (function(){
                 //if ((chars % (100*1000)) == 0)
                 //    console.log('chars', chars);
 
-                var cur = reader.Next();
+                var cur = reader.Next().charCodeAt(0);
                 chars += 1;
 
-                if (cur === '\\') {
+                if (cur === 0x5c) { // '\\'
                     reader.Next();
                     chars += 1;
                     continue;
                 }
 
-                if (cur === '"')
+                if (cur === 0x22) // "
                     break;
 
-                if (cur === '\0') {
+                if (cur === 0) {
                     var lineNum = startPos.lineNum;
                     throw ParseError('Unterminated JSONString starting at line ' + lineNum + ': ' + startPos);
                 }
