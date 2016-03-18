@@ -1295,8 +1295,8 @@ window.WebGLRR = (function(){
                     console.log('pagePos: ' + pagePos);
                     console.log('curPage.length: ' + curPage.length);
                     pageId += 1;
-                    pagePos = 0;
                     curPage = textArr[pageId];
+                    pagePos = 0;
                     console.log('pageId: ' + pageId);
                     console.log('pagePos: ' + pagePos);
                     if (curPage !== undefined)
@@ -1318,8 +1318,12 @@ window.WebGLRR = (function(){
             this.Slice = function(start, end) {
                 //console.log(start, end);
 
+                if (start.pageId == end.pageId) {
+                    var page = textArr[start.pageId];
+                    return page.slice(start.pagePos, end.pagePos);
+                }
+
                 var slicePages = textArr.slice(start.pageId, end.pageId + 1);
-                //console.log(slicePages);
                 if (!slicePages.length)
                     return '';
 
@@ -1424,7 +1428,7 @@ window.WebGLRR = (function(){
             if (shouldDump) {
                 var split = timer.Split();
                 split = ((split * 10) | 0) / 10;
-                console.log('  split in ' + split + 'ms.');
+                //console.log('  split in ' + split + 'ms.');
             }
 
             var ret = JSON.parse(jsonStr);
