@@ -50,9 +50,8 @@ function ReadBlobs(blobs, fnOnSuccess, fnOnError) {
 
         console.log(blobsRead);
         var strList = blobs.map(function(x) {
-            console.log('blob bytes: ' + x.size);
-            console.log(x.reader.result.length);
-            return x.reader.result;
+            var str = x.reader.result;
+            return str;
         });
 
         fnOnSuccess(strList);

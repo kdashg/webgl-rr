@@ -1685,6 +1685,10 @@ window.WebGLRR = (function(){
         }
 
         function NextFrame() {
+            // Are we already out of frames?
+            if (!(curFrameId in recording.frames))
+                return false;
+
             var startFrameId = curFrameId;
             var endFrameId = startFrameId + 1;
             var hasMore = true;
@@ -1699,7 +1703,7 @@ window.WebGLRR = (function(){
                 }
             }
             var diffMS = performance.now() - start;
-            diffMS = ((diffMS * 1000) | 0) / 1000;
+            diffMS = Decimals(diffMS, 1);
             console.log('Finished frame ' + startFrameId + ' with ' + totalCalls + ' call(s) in ' + diffMS + 'ms.');
 
             return hasMore;
