@@ -41,9 +41,13 @@ function SplitToChunks(blob, chunkSize) {
 }
 
 function ReadBlobs(blobs, fnOnSuccess, fnOnError) {
-    var blobsRead = 0;
+    var totalSize = 0;
+    blobs.forEach(function(x) {
+        totalSize += x.size;
+    });
 
     var start = performance.now();
+    var blobsRead = 0;
 
     function OnReadSuccess(e) {
         blobsRead += 1;
@@ -54,10 +58,8 @@ function ReadBlobs(blobs, fnOnSuccess, fnOnError) {
         var diffRead = (split - start) | 0;
         console.log('Read ' + blobsRead + ' blobs in ' + diffRead + 'ms.');
 
-        var totalSize = 0;
         var strList = blobs.map(function(x, i) {
-            var str = x.reader.result;
-            totalSize += str.length;
+            var str = x.reader.result.slice();
             return str;
         });
 
@@ -102,7 +104,6 @@ function FileInputChanged(file) {
     var start = performance.now();
 
     var chunks = SplitToChunks(file, CHUNK_SIZE);
-
 
     function OnSuccess(strList) {
         var diff = performance.now() - start;
