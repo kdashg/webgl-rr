@@ -8,6 +8,8 @@ window.WebGLRR = (function(){
     var LOG_REPLAYED_CALLS = false;
     var MAX_CHAR_COUNT = (1 << 28) - 1;
     var REVIVABLE_KEY = '__as';
+    var DEBUG_JSONSTRING_PARSING = false;
+    var DEBUG_TYPEDARRAY_FROMJSON = false;
 
     function ASSERT(cond, text='<assertion failed>') {
         if (cond)
@@ -497,9 +499,12 @@ window.WebGLRR = (function(){
             byteArr = new Uint8Array(this.buffer, this.byteOffset, this.byteLength);
         }
 
-        var mib = this.byteLength / (1024*1024);
-        if (mib >= 3.0) {
-            console.log(mib + 'MiB.');
+        var DUMP_THRESHOLD = 1*1024*1024;
+        var shouldDump = (this.byteLength >= DUMP_THRESHOLD);
+        if (shouldDump) {
+            var kib = this.byteLength / 1024;
+            kib |= 0;
+            console.log('ToJSON_TypedArray: ' + kib + 'KiB.');
         }
 
         var timer = new CTimer();
@@ -510,8 +515,8 @@ window.WebGLRR = (function(){
             byteStrList[i] = ByteToHex(byteArr[i]);
         }
 
-        if (mib >= 3.0) {
-            console.log('byteStrList in ' + timer.Split());
+        if (shouldDump) {
+            console.log('  byteStrList in ' + timer.Split());
         }
 
         var dataStr = byteStrList.join('');
@@ -523,9 +528,9 @@ window.WebGLRR = (function(){
         }
         dataStr = dataStr.slice();
         */
-        if (mib >= 3.0) {
-            console.log('dataStr in ' + timer.Split());
-            console.log('total in ' + timer.Total());
+        if (shouldDump) {
+            console.log('  dataStr in ' + timer.Split());
+            console.log('  total in ' + timer.Total());
         }
 
         //var byteCount = dataStr.length / 2;
@@ -536,19 +541,49 @@ window.WebGLRR = (function(){
         return ret;
     }
 
+    var kHexToNibble = {};
+    for (var i = 0; i < 16; i++) {
+        var hex = i.toString(16).charCodeAt(0);
+        kHexToNibble[hex] = i;
+    };
+
     function FromJSON_TypedArray(json) {
         var reviveData = json[REVIVABLE_KEY];
         var ctorName = reviveData[0];
         var dataStr = reviveData[1];
 
         var byteCount = dataStr.length / 2;
-        //console.log('byteCount: ' + byteCount);
         ASSERT(dataStr.length % 2 == 0, byteCount);
 
+        var timer = new CTimer();
+
+        var DUMP_THRESHOLD = 1*1024*1024;
+        var shouldDump = DEBUG_TYPEDARRAY_FROMJSON && (byteCount >= DUMP_THRESHOLD)
+        if (shouldDump) {
+            var kib = byteCount / 1024;
+            kib |= 0;
+            console.log('Converting ' + kib + 'KiB to ' + ctorName + '.');
+        }
+
         var byteArr = new Uint8Array(byteCount);
+
+        if (shouldDump) {
+            var split = Decimals(timer.Split(), 1);
+            console.log('  allocated in ' + split + 'ms.');
+        }
+
         for (var i = 0; i < byteCount; i++) {
-            var cur = dataStr[2*i] + dataStr[2*i+1];
-            byteArr[i] = parseInt(cur, 16);
+            var hexCharCode0 = dataStr.charCodeAt(2*i);
+            var hexCharCode1 = dataStr.charCodeAt(2*i + 1);
+            var val = (kHexToNibble[hexCharCode0] << 4) | kHexToNibble[hexCharCode1];
+            byteArr[i] = val;
+        }
+
+        if (shouldDump) {
+            var split = timer.Split();
+            console.log('  converted in ' + Decimals(split, 1) + 'ms.');
+            var mibPerSec = (byteCount / 1024 / 1024) / (split / 1000);
+            console.log('  ~' + mibPerSec + 'MiB/s.');
         }
 
         var obj = byteArr.buffer;
@@ -556,7 +591,6 @@ window.WebGLRR = (function(){
             var ctor = window[ctorName];
             obj = new ctor(obj);
         }
-        //console.log('done');
 
         return obj;
     }
@@ -1291,16 +1325,9 @@ window.WebGLRR = (function(){
                 pagePos += 1;
 
                 if (pagePos >= curPage.length) {
-                    console.log('pageId: ' + pageId);
-                    console.log('pagePos: ' + pagePos);
-                    console.log('curPage.length: ' + curPage.length);
                     pageId += 1;
                     curPage = textArr[pageId];
                     pagePos = 0;
-                    console.log('pageId: ' + pageId);
-                    console.log('pagePos: ' + pagePos);
-                    if (curPage !== undefined)
-                        console.log('curPage.length: ' + curPage.length);
                 }
 
                 linePos += 1;
@@ -1410,7 +1437,7 @@ window.WebGLRR = (function(){
             // BTW, cow is '\uD83D\uDC04'.
 
             var DUMP_THRESHOLD = 1*1024*1024;
-            var shouldDump = (chars >= DUMP_THRESHOLD);
+            var shouldDump = DEBUG_JSONSTRING_PARSING && (chars >= DUMP_THRESHOLD);
             if (shouldDump) {
                 var kib = (chars / 1024) | 0;
                 var split = timer.Split();
