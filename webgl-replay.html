@@ -24,7 +24,7 @@ Status: <span id='status'>-</span>
 
     <script>
 
-var CHUNK_SIZE = 100 * 1024 * 1024;
+var CHUNK_SIZE = 3 * 1024 * 1024; // Seems to 'gather' fastest. (Firefox Nightly 48)
 var MAX_STRING_SIZE = (1 << 28) - 1;
 if (CHUNK_SIZE > MAX_STRING_SIZE)
     throw new Error('CHUNK_SIZE > MAX_STRING_SIZE: ' + CHUNK_SIZE);
@@ -43,16 +43,32 @@ function SplitToChunks(blob, chunkSize) {
 function ReadBlobs(blobs, fnOnSuccess, fnOnError) {
     var blobsRead = 0;
 
+    var start = performance.now();
+
     function OnReadSuccess(e) {
         blobsRead += 1;
         if (blobsRead < blobs.length)
             return;
 
-        console.log(blobsRead);
-        var strList = blobs.map(function(x) {
+        var split = performance.now();
+        var diffRead = (split - start) | 0;
+        console.log('Read ' + blobsRead + ' blobs in ' + diffRead + 'ms.');
+
+        var totalSize = 0;
+        var strList = blobs.map(function(x, i) {
             var str = x.reader.result;
+            totalSize += str.length;
             return str;
         });
+
+        var end = performance.now();
+        var diffGather = (end - split) | 0;
+        console.log('  Gathered in ' + diffGather + 'ms.');
+
+        var totalTime = end - start;
+        var mibPerSec = (totalSize / 1024 / 1024) / (totalTime / 1000);
+        mibPerSec |= 0;
+        console.log('  ~' + mibPerSec + 'MiB/s.');
 
         fnOnSuccess(strList);
     }
