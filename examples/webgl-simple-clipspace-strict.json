@@ -1,0 +1,42 @@
+{
+  "canvases": [
+    {"remapId":{"__as":["CRemapId","HTMLCanvasElement",0]},"width":500,"height":500}
+  ],
+  "snapshots": {
+  },
+  "frames": [
+    [
+      ["HTMLCanvasElement$0","getContext",["webgl"],{"__as":["CRemapId","WebGLRenderingContext",1]}],
+      ["WebGLRenderingContext$1","createShader",[35633],{"__as":["CRemapId","WebGLShader",2]}],
+      ["WebGLRenderingContext$1","shaderSource",[{"__as":["CRemapId","WebGLShader",2]},"\n\nattribute vec3 aPosition; // \u2424\n\nvoid main(void) {\n  gl_PointSize = 50.0;\n  gl_Position = vec4(aPosition, 1.0);\n}\n\n    "]],
+      ["WebGLRenderingContext$1","compileShader",[{"__as":["CRemapId","WebGLShader",2]}]],
+      ["WebGLRenderingContext$1","createShader",[35632],{"__as":["CRemapId","WebGLShader",3]}],
+      ["WebGLRenderingContext$1","shaderSource",[{"__as":["CRemapId","WebGLShader",3]},"\n\nprecision mediump float;\n\nuniform vec4 uColor;\n\nvoid main(void) {\n  gl_FragColor = uColor;\n}\n\n    "]],
+      ["WebGLRenderingContext$1","compileShader",[{"__as":["CRemapId","WebGLShader",3]}]],
+      ["WebGLRenderingContext$1","createProgram",[],{"__as":["CRemapId","WebGLProgram",4]}],
+      ["WebGLRenderingContext$1","attachShader",[{"__as":["CRemapId","WebGLProgram",4]},{"__as":["CRemapId","WebGLShader",2]}]],
+      ["WebGLRenderingContext$1","attachShader",[{"__as":["CRemapId","WebGLProgram",4]},{"__as":["CRemapId","WebGLShader",3]}]],
+      ["WebGLRenderingContext$1","linkProgram",[{"__as":["CRemapId","WebGLProgram",4]}]],
+      ["WebGLRenderingContext$1","getProgramParameter",[{"__as":["CRemapId","WebGLProgram",4]},35714],true],
+      ["WebGLRenderingContext$1","getAttribLocation",[{"__as":["CRemapId","WebGLProgram",4]},"aPosition"],0],
+      ["WebGLRenderingContext$1","getUniformLocation",[{"__as":["CRemapId","WebGLProgram",4]},"uColor"],{"__as":["CRemapId","WebGLUniformLocation",5]}],
+      ["WebGLRenderingContext$1","clearColor",[0,0.3,0,1]],
+      ["WebGLRenderingContext$1","clear",[16384]],
+      ["WebGLRenderingContext$1","createBuffer",[],{"__as":["CRemapId","WebGLBuffer",6]}],
+      ["WebGLRenderingContext$1","bindBuffer",[34962,{"__as":["CRemapId","WebGLBuffer",6]}]],
+      ["WebGLRenderingContext$1","bufferData",[34962,{"__as":["Float32Array","0000000000000000000000000000803f"]},35044]],
+      ["WebGLRenderingContext$1","enable",[2929]],
+      ["WebGLRenderingContext$1","useProgram",[{"__as":["CRemapId","WebGLProgram",4]}]],
+      ["WebGLRenderingContext$1","disableVertexAttribArray",[0]],
+      ["WebGLRenderingContext$1","vertexAttrib3fv",[0,[-0.1,-0.1,-0.1]]],
+      ["WebGLRenderingContext$1","uniform4fv",[{"__as":["CRemapId","WebGLUniformLocation",5]},[1,0,0,1]]],
+      ["WebGLRenderingContext$1","drawArrays",[0,0,1]],
+      ["WebGLRenderingContext$1","vertexAttrib3fv",[0,[0.1,0.1,0.1]]],
+      ["WebGLRenderingContext$1","uniform4fv",[{"__as":["CRemapId","WebGLUniformLocation",5]},[0,1,0,1]]],
+      ["WebGLRenderingContext$1","drawArrays",[0,0,1]],
+      ["WebGLRenderingContext$1","vertexAttrib3fv",[0,[0,0,0]]],
+      ["WebGLRenderingContext$1","uniform4fv",[{"__as":["CRemapId","WebGLUniformLocation",5]},[0,0,1,1]]],
+      ["WebGLRenderingContext$1","drawArrays",[0,0,1]]
+    ]
+  ]
+}

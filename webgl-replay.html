@@ -35,7 +35,7 @@ function SplitToChunks(blob, chunkSize) {
     while (chunkStart < blob.size) {
         var chunk = blob.slice(chunkStart, chunkStart+chunkSize);
         ret.push(chunk);
-        chunkStart += chunkSize;
+        chunkStart += chunk.size;
     }
     return ret;
 }
@@ -172,6 +172,48 @@ function RepeatFrame() {
 
     curReplay.SetPos(frameId, 0);
     curReplay.NextFrame();
+}
+
+////
+
+function parseArgs() {
+  var query = window.location.search.substring(1);
+
+  var split = query.split("&");
+
+  var args = {}
+  for (var i = 0; i < split.length; i++) {
+    var pair = split[i].split("=");
+
+    var key = pair[0];
+    var value = pair.slice(1).join("=");
+    value = decodeURIComponent(value);
+
+    args[key] = value;
+  }
+
+  return args;
+}
+
+var args = parseArgs();
+var srcPath = args['src'];
+if (srcPath) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', srcPath, true);
+    xhr.responseType = 'blob';
+    xhr.onreadystatechange = function(e) {
+        if (xhr.readyState != 4)
+            return;
+
+        var blob = xhr.response;
+        if (!blob) {
+            console.log('Failed to load blob from: ' + srcPath);
+            return;
+        }
+
+        FileInputChanged(blob);
+    };
+    xhr.send();
 }
 
     </script>
