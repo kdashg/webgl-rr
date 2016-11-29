@@ -177,22 +177,22 @@ function RepeatFrame() {
 ////
 
 function parseArgs() {
-  var query = window.location.search.substring(1);
+    var query = window.location.search.substring(1);
 
-  var split = query.split("&");
+    var split = query.split("&");
 
-  var args = {}
-  for (var i = 0; i < split.length; i++) {
-    var pair = split[i].split("=");
+    var args = {}
+    for (var i = 0; i < split.length; i++) {
+        var pair = split[i].split("=");
 
-    var key = pair[0];
-    var value = pair.slice(1).join("=");
-    value = decodeURIComponent(value);
+        var key = pair[0];
+        var value = pair.slice(1).join("=");
+        value = decodeURIComponent(value);
 
-    args[key] = value;
-  }
+        args[key] = value;
+    }
 
-  return args;
+    return args;
 }
 
 var args = parseArgs();
