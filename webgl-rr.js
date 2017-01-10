@@ -11,6 +11,12 @@ window.WebGLRR = (function(){
     var DEBUG_JSONSTRING_PARSING = false;
     var DEBUG_TYPEDARRAY_FROMJSON = false;
 
+    var ASSERT_ON_MISSING_REMAP = true;
+
+    var GUESS_ENUM_NAMES = true;
+    var ENUM_NAME_PREFIX = '__GL_';
+
+
     function ASSERT(cond, text='<assertion failed>') {
         if (cond)
             return;
@@ -37,6 +43,81 @@ window.WebGLRR = (function(){
             obj[TAG_NAMESPACE] = {};
 
         obj[TAG_NAMESPACE][tagName] = val;
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+
+    function PatchProtoFunc(proto, funcName) {
+        var old = proto[funcName];
+        if (old === undefined)
+            throw new Error(proto.constructor.name + ' has no member ' + funcName);
+
+        if ('isPatch' in old)
+            return;
+
+        var patch = function() {
+            var args = arguments; // Magic indentifier!
+            var ret = old.apply(this, args);
+
+            RecordCall(this, funcName, args, ret);
+
+            return ret;
+        };
+
+        patch.isPatch = null;
+        proto[funcName] = patch;
+    }
+
+    var kEnumMapByName = {};
+    var kEnumMapByValue = {};
+
+    function GatherEnumsFromProtos(proto) {
+        Object.getOwnPropertyNames(proto).forEach( name => {
+            if (name === 'constructor')
+                return;
+
+            if (proto.__lookupGetter__(name) !== undefined)
+                return; // drawingBufferWidth, et al
+
+            if (typeof(proto[name]) === 'function')
+                return;
+
+            if (name.toUpperCase() === name) {
+                kEnumMapByName[name] = proto[name];
+                kEnumMapByValue[proto[name]] = name;
+                return;
+            }
+        });
+    }
+    GatherEnumsFromProtos(WebGLRenderingContext.prototype);
+    if (window.WebGL2RenderingContext !== undefined) {
+        GatherEnumsFromProtos(WebGL2RenderingContext.prototype);
+    }
+
+    function PatchWebGLProtos(proto) {
+        Object.getOwnPropertyNames(proto).forEach( name => {
+            if (name === 'constructor')
+                return;
+
+            if (proto.__lookupGetter__(name) !== undefined)
+                return; // drawingBufferWidth, et al
+
+            //console.log(name);
+            if (typeof(proto[name]) === 'function') {
+                PatchProtoFunc(proto, name);
+                return;
+            }
+        });
+    }
+
+    function PatchForRecording() {
+        PatchProtoFunc(HTMLCanvasElement.prototype, 'getContext');
+
+        PatchWebGLProtos(WebGLRenderingContext.prototype);
+
+        if (window.WebGL2RenderingContext !== undefined) {
+            PatchWebGLProtos(WebGL2RenderingContext.prototype);
+        }
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -74,16 +155,55 @@ window.WebGLRR = (function(){
 
     CCall.prototype.toJSON = function() {
         var remapStr = this.objId.toString();
-        var ret = [remapStr, this.funcName, this.args, this.ret];
+
+        var args = this.args;
+        if (GUESS_ENUM_NAMES) {
+            args = args.map(arg => {
+                if (typeof(arg) !== 'number')
+                    return arg;
+
+                var isInt = (Math.round(arg) === arg);
+                if (isInt && arg >= 0x0800) {
+                    if (kEnumMapByValue[arg] !== undefined) {
+                        arg = ENUM_NAME_PREFIX + kEnumMapByValue[arg];
+                        return arg;
+                    }
+                }
+                return arg;
+            });
+        }
+
+        var ret = [remapStr, this.funcName, args, this.ret];
         if (this.ret === undefined) {
             ret.pop();
         }
         return ret;
     };
+
     CCall.fromShorthandJSON = function(json) {
         var remapStr = json[0];
         var objId = CRemapId.fromString(remapStr);
-        return new CCall(objId, json[1], json[2], json[3]);
+
+        var args = json[2];
+        if (GUESS_ENUM_NAMES) {
+            args = args.map(arg => {
+                if (typeof(arg) !== 'string')
+                    return arg;
+
+                if (!arg.startsWith(ENUM_NAME_PREFIX))
+                    return arg;
+
+                var name = arg.slice(ENUM_NAME_PREFIX.length);
+                if (kEnumMapByName[name] === undefined) {
+                    console.log(name);
+                    throw Error('Failed to parse: ' + arg);
+                }
+
+                return kEnumMapByName[name];
+            });
+        }
+
+        return new CCall(objId, json[1], args, json[3]);
     };
 
     /*
@@ -186,291 +306,10 @@ window.WebGLRR = (function(){
         ]);
     }
 
-
     var kMediaElemCtors = [
         HTMLCanvasElement,
         HTMLImageElement,
         HTMLVideoElement,
-    ];
-
-    ////////////////////////////////////////////////////////////////////////////
-
-    var kFuncNames_GL = [
-        // From the WebGL 1 spec.
-        'getContextAttributes',
-        'isContextLost',
-
-        'getSupportedExtensions',
-        'getExtension',
-
-        'activeTexture',
-        'attachShader',
-        'bindAttribLocation',
-        'bindBuffer',
-        'bindFramebuffer',
-        'bindRenderbuffer',
-        'bindTexture',
-        'blendColor',
-        'blendEquation',
-        'blendEquationSeparate',
-        'blendFunc',
-        'blendFuncSeparate',
-
-        'bufferData',
-        'bufferSubData',
-
-        'checkFramebufferStatus',
-        'clear',
-        'clearColor',
-        'clearDepth',
-        'clearStencil',
-        'colorMask',
-        'compileShader',
-
-        'compressedTexImage2D',
-        'compressedTexSubImage2D',
-        'copyTexImage2D',
-        'copyTexSubImage2D',
-
-        'createBuffer',
-        'createFramebuffer',
-        'createProgram',
-        'createRenderbuffer',
-        'createShader',
-        'createTexture',
-
-        'cullFace',
-
-        'deleteBuffer',
-        'deleteFramebuffer',
-        'deleteProgram',
-        'deleteRenderbuffer',
-        'deleteShader',
-        'deleteTexture',
-
-        'depthFunc',
-        'depthMask',
-        'depthRange',
-        'detachShader',
-        'disable',
-        'disableVertexAttribArray',
-        'drawArrays',
-        'drawElements',
-
-        'enable',
-        'enableVertexAttribArray',
-        'finish',
-        'flush',
-        'framebufferRenderbuffer',
-        'framebufferTexture2D',
-        'frontFace',
-
-        'generateMipmap',
-
-        'getActiveAttrib',
-        'getActiveUniform',
-        'getAttachedShaders',
-
-        'getAttribLocation',
-
-        'getBufferParameter',
-        'getParameter',
-
-        'getError',
-
-        'getFramebufferAttachmentParameter',
-        'getProgramParameter',
-        'getProgramInfoLog',
-        'getRenderbufferParameter',
-        'getShaderParameter',
-        'getShaderPrecisionFormat',
-        'getShaderInfoLog',
-
-        'getShaderSource',
-
-        'getTexParameter',
-
-        'getUniform',
-
-        'getUniformLocation',
-
-        'getVertexAttrib',
-
-        'getVertexAttribOffset',
-
-        'hint',
-        'isBuffer',
-        'isEnabled',
-        'isFramebuffer',
-        'isProgram',
-        'isRenderbuffer',
-        'isShader',
-        'isTexture',
-        'lineWidth',
-        'linkProgram',
-        'pixelStorei',
-        'polygonOffset',
-
-        'readPixels',
-
-        'renderbufferStorage',
-        'sampleCoverage',
-        'scissor',
-
-        'shaderSource',
-
-        'stencilFunc',
-        'stencilFuncSeparate',
-        'stencilMask',
-        'stencilMaskSeparate',
-        'stencilOp',
-        'stencilOpSeparate',
-
-        'texImage2D',
-
-        'texParameterf',
-        'texParameteri',
-
-        'texSubImage2D',
-
-        'uniform1f',
-        'uniform1fv',
-        'uniform1i',
-        'uniform1iv',
-        'uniform2f',
-        'uniform2fv',
-        'uniform2i',
-        'uniform2iv',
-        'uniform3f',
-        'uniform3fv',
-        'uniform3i',
-        'uniform3iv',
-        'uniform4f',
-        'uniform4fv',
-        'uniform4i',
-        'uniform4iv',
-
-        'uniformMatrix2fv',
-        'uniformMatrix3fv',
-        'uniformMatrix4fv',
-
-        'useProgram',
-        'validateProgram',
-
-        'vertexAttrib1f',
-        'vertexAttrib1fv',
-        'vertexAttrib2f',
-        'vertexAttrib2fv',
-        'vertexAttrib3f',
-        'vertexAttrib3fv',
-        'vertexAttrib4f',
-        'vertexAttrib4fv',
-        'vertexAttribPointer',
-
-        'viewport',
-    ];
-    var kFuncNames_GL2 = [
-        // WebGL 2:',
-        'copyBufferSubData',
-        'getBufferSubData',
-
-        'blitFramebuffer',
-        'framebufferTextureLayer',
-        'invalidateFramebuffer',
-        'invalidateSubFramebuffer',
-        'readBuffer',
-
-        'renderbufferStorageMultisample',
-
-        'texStorage2D',
-        'texStorage3D',
-        'texImage3D',
-        'texSubImage3D',
-        'copyTexSubImage3D',
-        'compressedTexImage3D',
-        'compressedTexSubImage3D',
-
-        'uniform1ui',
-        'uniform2ui',
-        'uniform3ui',
-        'uniform4ui',
-        'uniform1uiv',
-        'uniform2uiv',
-        'uniform3uiv',
-        'uniform4uiv',
-
-        'uniformMatrix2x3fv',
-        'uniformMatrix2x4fv',
-        'uniformMatrix3x2fv',
-        'uniformMatrix3x4fv',
-        'uniformMatrix4x2fv',
-        'uniformMatrix4x3fv',
-
-        'vertexAttribI4i',
-        'vertexAttribI4iv',
-        'vertexAttribI4ui',
-        'vertexAttribI4uiv',
-        'vertexAttribIPointer',
-
-        'vertexAttribDivisor',
-        'drawArraysInstanced',
-        'drawElementsInstanced',
-        'drawRangeElements',
-
-        'drawBuffers',
-        'clearBufferiv',
-        'clearBufferuiv',
-        'clearBufferfv',
-        'clearBufferfi',
-
-        'createQuery',
-        'deleteQuery',
-        'isQuery',
-        'beginQuery',
-        'endQuery',
-        'getQuery',
-        'getQueryParameter',
-
-        'createSampler',
-        'deleteSampler',
-        'isSampler',
-        'bindSampler',
-        'samplerParameteri',
-        'samplerParameterf',
-        'getSamplerParameter',
-
-        'fenceSync',
-        'isSync',
-        'deleteSync',
-        'clientWaitSync',
-        'waitSync',
-        'getSyncParameter',
-
-        'createTransformFeedback',
-        'deleteTransformFeedback',
-        'isTransformFeedback',
-        'bindTransformFeedback',
-        'beginTransformFeedback',
-        'endTransformFeedback',
-        'transformFeedbackVaryings',
-        'getTransformFeedbackVarying',
-        'pauseTransformFeedback',
-        'resumeTransformFeedback',
-
-        'bindBufferBase',
-        'bindBufferRange',
-        'getIndexedParameter',
-        'getUniformIndices',
-        'getActiveUniforms',
-        'getUniformBlockIndex',
-        'getActiveUniformBlockParameter',
-        'getActiveUniformBlockName',
-        'uniformBlockBinding',
-
-        'createVertexArray',
-        'deleteVertexArray',
-        'isVertexArray',
-        'bindVertexArray',
     ];
 
     ////////////////////////////////////////////////////////////////////////////
@@ -936,64 +775,6 @@ window.WebGLRR = (function(){
                 state.unpackSkipImages = args[1];
                 break;
             }
-        }
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
-
-    function PatchProtoFunc(primClass, funcName) {
-        var old = primClass.prototype[funcName];
-        if (old === undefined)
-            throw new Error(primClass + ' has no member ' + funcName);
-
-        if ('isPatch' in old)
-            return;
-
-        var patch = function() {
-            var args = arguments; // Magic indentifier!
-            var ret = old.apply(this, args);
-
-            RecordCall(this, funcName, args, ret);
-
-            return ret;
-        };
-
-        patch.isPatch = null;
-        primClass.prototype[funcName] = patch;
-    }
-
-    function GetRepeats(arr) {
-        var accum = {};
-        var repeats = {};
-        arr.forEach(function(x) {
-            if (x in accum) {
-                repeats[x] = null;
-            }
-            accum[x] = null;
-        });
-
-        return Object.keys(repeats);
-    }
-
-    function PatchProto(primClass, funcNameList) {
-        var repeats = GetRepeats(funcNameList);
-        ASSERT(!repeats.length,
-               'PatchProto for ' + primClass + ' had repeats: ' + repeats.join(', '));
-
-        funcNameList.forEach(function(x) {
-            PatchProtoFunc(primClass, x);
-        });
-    }
-
-    function PatchForRecording() {
-        PatchProtoFunc(HTMLCanvasElement, 'getContext');
-
-        PatchProto(WebGLRenderingContext, kFuncNames_GL);
-
-        var ctor = window.WebGL2RenderingContext;
-        if (ctor !== undefined) {
-            var funcNames = kFuncNames_GL.concat(kFuncNames_GL2);
-            PatchProto(ctor, funcNames);
         }
     }
 
@@ -1680,7 +1461,9 @@ window.WebGLRR = (function(){
 
         function GetRemapped(remapId) {
             var obj = activeObjects[remapId.id];
-            ASSERT(obj !== undefined);//, 'Undefined active object: ' + remapId);
+            if (ASSERT_ON_MISSING_REMAP) {
+                ASSERT(obj !== undefined);//, 'Undefined active object: ' + remapId);
+            }
             return obj;
         }
 
