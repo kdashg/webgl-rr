@@ -291,6 +291,7 @@ window.WebGLRR = (function(){
         WebGLProgram,
         WebGLRenderbuffer,
         WebGLShader,
+        WebGLShaderPrecisionFormat,
         WebGLTexture,
         WebGLUniformLocation,
     ];
