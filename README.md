@@ -1,3 +1,5 @@
+# ***You probably want https://github.com/jdashg/canvas-rr***
+
 webgl-rr
 ========
 
